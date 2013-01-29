@@ -1,6 +1,13 @@
 #NoEnv
 
 /*
+Changes in v1.0A4
+- Send To menu item now works with 
+	- multiple files selected
+	- folders selected - search does not include subfolders
+- Changed subtitle file name indexing from "index" to "(index)" when there are multiple subtitle files with the same name 
+- Fixed results regex matching bug
+- Traytip notifications now include the name of the movie file, and the name of downloaded subtitle file
 Changes in v1.0A3:
 - Tray menu
 Changes in v1.0A2:
@@ -18,7 +25,7 @@ Changes in v1.0A2:
 saveSettings	= 1 ;1 - yes; 0 - no
 trayTipOn		= 1 ; 1 - traytip notifications on (1) or off (0)		
 scriptName		= OpenSubtitles Downloader
-scriptVersion 	= v1.0A3
+scriptVersion 	= v1.0A4
 
 ;// SCRIPT
 Menu, Tray, NoStandard
@@ -80,7 +87,7 @@ OSDLGUI:
 	gui, add, text, xp60 vOSDLMenuItemLangTxt, % (currentMenuItemLanguage != "No menu item" ?  "Menu item added for " : "") currentMenuItemLanguage
 	gui, tab, 3
 	gui, add, text,, %scriptName%
-	gui, add, edit, w470 h120 ReadOnly, Version: %scriptVersion%`nAuthor: nordan / gahks`nHomepage: Look for %scriptName% at http://www.autohotkey.com/board/forum/49-scripts/`nLicense: GNU GPL v3. The included libraries and functions might have different licenses, check em out.`nThanks to: shajul and Sean for the Unz(), VxE for httpRequest(), just me for GetOpenSubtitlesHash(). Cheers to Delusion for his subdownloader script, which was the inspiration for this one.
+	gui, add, edit, w470 h120 ReadOnly, Version: %scriptVersion%`nAuthor: nordan / gahks`nHomepage: Look for %scriptName% at:`nhttp://www.autohotkey.com/board/forum/49-scripts/`nhttps://github.com/submersion/opensubtitles-downloader`nLicense: GNU GPL v3. The included libraries and functions might have different licenses, check em out.`nThanks to: shajul and Sean for the Unz(), VxE for httpRequest(), just me for GetOpenSubtitlesHash(). Cheers to Delusion for his subdownloader script, which was the inspiration for this one.
 	gui, add, text,, 
 	gui, add, statusbar,,
 	gui, show,, %scriptName% - %scriptVersion%
@@ -184,23 +191,42 @@ CommandLine:
 	{
 		filePath = %1% 
 		defLanguage := lang()
+		Gosub, SearchOS
 	} else {
 		clLang = %1%
 		defLanguage := lang(clLang)
-		filePath = %2% 
+		filePath = %2%
+		Loop, % clNr 
+		{
+			if (a_index==1)
+				continue
+			filePath := %a_index%
+			FileGetAttrib, fileAttr, %filePath%
+			if (fileAttr == "D"){
+				Loop, %filePath%\*.*, 0, 0
+				{
+					if A_LoopFileExt not in 3g2,3gp,3gp2,3gpp,60d,ajp,asf,asx,avchd,avi,bik,bix,box,cam,dat,divx,dmf,dv,dvr-ms,evo,flc,fli,flic,flv,flx,gvi,gvp,h264,m1v,m2p,m2ts,m2v,m4e,m4v,mjp,mjpeg,mjpg,mkv,moov,mov,movhd,movie,movx,mp4,mpe,mpeg,mpg,mpv,mpv2,mxf,nsv,nut,ogg,ogm,omf,ps,qt,ram,rm,rmvb,swf,ts,vfw,vid,video,viv,vivo,vob,vro,wm,wmv,wmx,wrap,wvx,wx,x264,xvid
+						continue
+					filePath := A_LoopFileLongPath
+					Gosub, SearchOS
+				}
+			} else {
+				filePath := %a_index%
+				Gosub, SearchOS
+			}
+		}
 	}
-	Gosub, SearchOS
 	Gosub, GuiClose
 return
 
 SearchOS:
+	SplitPath, filePath, trayFileName
 	if (trayTipOn)
-		TrayTip, %scriptName%,Hashing...,,1
+		TrayTip, %scriptName%,%trayFileName%:`nHashing...,,1
 	hash := GetOpenSubtitlesHash(filePath)
 	if (trayTipOn)
-		TrayTip, %scriptName%,Searching for available subtitles...,,1
+		TrayTip, %scriptName%,%trayFileName%:`nSearching for available subtitles...,,1
 	subtitles := searchOS(hash,defLanguage)
-
 	if (defLanguage == "all"){
 		if (trayTipOn)
 			TrayTip,
@@ -267,7 +293,7 @@ return
 
 DLSubtitle:
 	if (trayTipOn)
-		TrayTip, %scriptName%,Downloading subtitle file...,,1
+		TrayTip, %scriptName%,%trayFileName%:`nDownloading subtitle file...,,1
 	SplitPath, filePath,outName, outDir,,outNameNoExt
 	dlPath := a_temp . "\OSDL.zip"
 	FileDelete, %dlPath%
@@ -281,15 +307,20 @@ DLSubtitle:
 	{
 		if (a_loopfileext != "nfo") {
 			index := ""
-			while (FileExist(outDir . "\" . outNameNoExt . index "." . A_LoopFileExt)){
-				index++
+			if (fExist:=FileExist(outDir . "\" . outNameNoExt . "." . A_LoopFileExt)){
+				while(fExist){
+					index++
+					fExist := FileExist(outDir . "\" . outNameNoExt . "(" . index ")." . A_LoopFileExt)
+				}
 			}
+			if (index)
+				index := "(" . index . ")"
 			outPath := outDir . "\" .  outNameNoExt . index "." . A_LoopFileExt
 			FileCopy, %A_LoopFileFullPath%, %outPath%
 		}
 	}
 	if (trayTipOn)
-		TrayTip, %scriptName%,Download finished.,,1
+		TrayTip, %scriptName%,%outPath%:`nDownload finished.,,1
 return
 
 ;// Searches Opensubtitles using file hash and a language code
@@ -302,7 +333,7 @@ searchOS(fileHash,languageCode){
 	ret := HTTPRequest(searchUrl,data:="")
 	if (!ret)
 		return ret
-	needle = <title>(?:[a-zA-Z]*?) - ([a-zA-Z]*)(?:.*?) - (?:[a-zA-Z]*?)<\/title>(?:\s*)<link>http://www.opensubtitles.org/(?:.*?)/subtitles/([0-9]*)/(?:.*?)<\/link>(?:\s*)<description>(?:\s*?)(?:Released as: (.*?)`;(?:\s*?))?Format: (.*?)`;(?:\s*?)Uploaded at (?:.*?)(?:\s*?)Download: http://www.opensubtitles.org - ([0-9]*)x(?:\s*)<\/description>
+	needle = <item>(?:\s)*<title>(?:.*?) - ([a-zA-Z]*)(?:.*?) - (?:[a-zA-Z]*?)<\/title>(?:\s*)<link>http://www.opensubtitles.org/(?:.*?)/subtitles/([0-9]*)/(?:.*?)<\/link>(?:\s*)<description>(?:\s*?)(?:Released as: (.*?)`;(?:\s*?))?Format: (.*?)`;(?:\s*?)Uploaded at (?:.*?)(?:\s*?)Download: http://www.opensubtitles.org - ([0-9]*)x(?:\s*)<\/description>
 	pos:=1	
 	while (pos:=RegExMatch(data, needle, out, pos+1)){
 		list .= "http://dl.opensubtitles.org/download/sub/" out2 "|" out5 "|" out4 "|" out1 "|" out3 "`,"
