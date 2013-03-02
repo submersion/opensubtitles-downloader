@@ -1,6 +1,18 @@
 #NoEnv
-
 /*
+OpenSubtitles Downloader
+
+Sites:
+https://github.com/submersion/opensubtitles-downloader
+http://www.autohotkey.com/board/forum/49-scripts/
+http://forum.opensubtitles.org/viewtopic.php?f=11&t=14045
+
+License:
+GNU GPL v3
+
+Changes in v1.0A5
+- Added support for search for subtitles in multiple languages
+- Minor GUI and functionality fixes
 Changes in v1.0A4
 - Send To menu item now works with 
 	- multiple files selected
@@ -25,7 +37,7 @@ Changes in v1.0A2:
 saveSettings	= 1 ;1 - yes; 0 - no
 trayTipOn		= 1 ; 1 - traytip notifications on (1) or off (0)		
 scriptName		= OpenSubtitles Downloader
-scriptVersion 	= v1.0A4
+scriptVersion 	= v1.0A5
 
 ;// SCRIPT
 Menu, Tray, NoStandard
@@ -34,20 +46,16 @@ Menu, Tray, Add, E&xit, GuiClose
 SplitPath, A_ScriptFullPath,,iniDir,,iniNameNoExt
 iniPath := iniDir "\" iniNameNoExt ".ini"
 IniRead, defLanguage, %iniPath% ,Default,language
-if (!defLanguage)
+if (!defLanguage) ;no language settings
 	defLanguage = All Languages
 DDLCont = All Languages|Albanian|Arabic|Armenian|Basque|Bengali|Bosnian|Brazilian|Breton|Bulgarian|Catalan|Chinese|Croatian|Czech|Danish|Dutch|English|Esperanto|Estonian|Finnish|French|Georgian|German|Galician|Greek|Hebrew|Hindi|Hungarian|Icelandic|Indonesian|Italian|Japanese|Kazakh|Khmer|Korean|Latvian|Lithuanian|Luxembourgish|Macedonian|Malay|Norwegian|Occitan|Persian|Polish|Portuguese|Romanian|Russian|Serbian|Sinhalese|Slovak|Slovenian|Spanish|Swahili|Swedish|Syriac|Tagalog|Thai|Turkish|Ukrainian|Urdu|Vietnamese
-DDLCont2 := DDLCont
-DDLCont := ""
-Loop, parse, DDLCont2, | 
-{
-	DDLCont .= A_LoopField "|"
-	if (a_loopfield == defLanguage)
-		DDLCont .= "|"
-}
-StringTrimRight, DDLCont, DDLCont, 1
-if (!InStr(DDLCont,"||"))
+Loop, parse, defLanguage, |
+	StringReplace, DDLCont, DDLCont, %A_LoopField%, %A_LoopField%|
+if (!InStr(DDLCont,"||")){ ;invalid language settings
 	StringReplace, DDLCont, DDLCont, All Languages|, All Languages||
+	defLanguage = All Languages
+}
+StringReplace, defLanguageForDisplay, defLanguage, |,`,%a_space% , All
 
 clNr = %0%
 if (!clNr) ;// no command line parameters
@@ -60,34 +68,41 @@ OSDLGUI:
 	Gosub, OSDLSendToVarsInit
 	if (FileExist(sendToItemPath)){
 		FileGetShortcut, %sendToItemPath%,outTarget,,currentMenuItemLanguage
-		needle = "([a-zA-Z]*)"
+		needle = "([a-zA-Z|]*)"
 		RegExMatch(currentMenuItemLanguage,needle,out,1)
-		currentMenuItemLanguage := out1
+		StringReplace, currentMenuItemLanguage, out1, |,`,%a_space% , All
 	}		
 	if (!FileExist(sendToItemPath) || !currentMenuItemLanguage)
 		currentMenuItemLanguage = No menu item
-	else 
  	
 	gui, 1:default
 	gui, +LabelOSDLGUI
-	gui, add, tab2, w500, General|Right click menu item|About
+	gui, add, tab2, w500 h270, General|Right click menu item|About
 	gui, tab, 1
-	gui, add, edit,w300 h20 readonly vOSDLGUIEdit,
-	gui, add, button,yp+0 xp+300 w50 gOSDLBrowseFile, &Browse
-	gui, add, ddl,vOSDLGUIDDL yp+0 xp+60 w100 gOSDLChangeDDL,%DDLCont%
-	gui, add, button,yp+30 x20 w50 gOSDLSearch,Search!
+	gui, add, edit,w250 h25 readonly vOSDLGUIEdit,
+	gui, add, button,yp+0 xp+250 w50 gOSDLBrowseFile, &Browse
+	;gui, add, ddl,vOSDLGUIDDL yp+0 xp+60 w100 gOSDLChangeDDL,%DDLCont%
+	gui, add, edit, yp+0 xp+60 w160 h20 ReadOnly vOSDLGUILangEdit, %defLanguageForDisplay%
+	gui, add, listbox, vOSDLGUILB gOSDLChangeDDL Multi yp+30 xp+0 w160 h100, %DDLCont%
+	gui, add, text,, (Ctrl+Click to select more than one)
+	gui, add, button,yp-100 x20 h25 w150 gOSDLSearch,&Search and download!
+	
 	gui, tab, 2
 	gui, add, text, h20, Right click menu item (in the Send To menu)
 	gui, add, button, x20 h30 yp+25 w150 gOSDLSendto, Add/refresh menu item
-	gui, add, text, xp160 w70,for language:
-	gui, add, DDL, xp80 w100 vOSDLSendToLang gOSDLChangeDDL, %DDLCont%
-	gui, add, button, x20 h30 yp+35 w150 gOSDLSendto, Remove menu item
-	gui, add, text,, (Use right click on movie file -> Send To -> Download Subtitle.)
-	gui, add, text, w50, Currently: 
-	gui, add, text, xp60 vOSDLMenuItemLangTxt, % (currentMenuItemLanguage != "No menu item" ?  "Menu item added for " : "") currentMenuItemLanguage
+	gui, add, button, x20 h30 yp+40 w150 gOSDLSendto, Remove menu item
+	gui, add, text, xp160 yp-40 w70,for language:
+	;gui, add, DDL, xp80 w100 vOSDLSendToLang gOSDLChangeDDL, %DDLCont%
+	gui, add, edit, xp+80 w160 ReadOnly vOSDLGUISendToLangEdit, %defLanguageForDisplay%
+	gui, add, listbox, vOSDLGUISendToLB gOSDLChangeDDL Multi yp+30 xp+0 w160 h100, %DDLCont%
+	
+	
+	gui, add, text, x20 yp+120 h20, (Use right click on movie file -> Send To -> Download Subtitle.)
+	gui, add, text, w50 h20, Currently: 
+	gui, add, edit, ReadOnly xp60 h20 w400 vOSDLMenuItemLangTxt, % (currentMenuItemLanguage != "No menu item" ?  "Menu item added for " : "") currentMenuItemLanguage
 	gui, tab, 3
 	gui, add, text,, %scriptName%
-	gui, add, edit, w470 h120 ReadOnly, Version: %scriptVersion%`nAuthor: nordan / gahks`nHomepage: Look for %scriptName% at:`nhttp://www.autohotkey.com/board/forum/49-scripts/`nhttps://github.com/submersion/opensubtitles-downloader`nLicense: GNU GPL v3. The included libraries and functions might have different licenses, check em out.`nThanks to: shajul and Sean for the Unz(), VxE for httpRequest(), just me for GetOpenSubtitlesHash(). Cheers to Delusion for his subdownloader script, which was the inspiration for this one.
+	gui, add, edit, w470 h200 ReadOnly, Version: %scriptVersion%`nAuthor: nordan / gahks`nHomepage: Look for %scriptName% at:`nhttp://www.autohotkey.com/board/forum/49-scripts/`nhttps://github.com/submersion/opensubtitles-downloader`nLicense: GNU GPL v3. The included libraries and functions might have different licenses, check em out.`nThanks to: shajul and Sean for the Unz(), VxE for httpRequest(), just me for GetOpenSubtitlesHash(). Cheers to Delusion for his subdownloader script, which was the inspiration for this one.
 	gui, add, text,, 
 	gui, add, statusbar,,
 	gui, show,, %scriptName% - %scriptVersion%
@@ -99,7 +114,8 @@ OSDLSendToVarsInit:
 return
 
 OSDLSendto:
-	GuiControlGet, sendToLang,, OSDLSendToLang
+	GuiControlGet, sendToLang,, OSDLGUISendToLB
+	StringReplace, sendToLangForDisplay, sendToLang, |,`,%a_space% , All}
 	Gosub, OSDLSendToVarsInit
 	if (a_guicontrol == "Add/refresh menu item"){
 		if(FileExist(sendToItemPath))
@@ -113,8 +129,8 @@ OSDLSendto:
 		}
 		FileCreateShortcut, %sendToTargetPath%, %sendToItemPath%, %A_ScriptDir%, %sendToCL%, Download Subtitle
 		if (!Errorlevel){
-			SB_SetText("Shortcut created/refreshed (for " . sendToLang .  ")")
-			GuiControl,,OSDLMenuItemLangTxt, Menu item added for %sendToLang%
+			SB_SetText("Shortcut created/refreshed (for " . sendToLangForDisplay .  ")")
+			GuiControl,,OSDLMenuItemLangTxt, Menu item added for %sendToLangForDisplay%
 		}
 	} else if (a_guicontrol == "Remove menu item"){
 		FileDelete, %sendToItemPath%
@@ -137,21 +153,27 @@ OSDLBrowseFile:
 return
 
 OSDLChangeDDL:
-if a_guicontrol in OSDLGUIDDL
-{
+if a_guicontrol in OSDLGUILB,OSDLGUISendToLB
+{	
 		GuiControlGet, defLanguage2,, %A_GuiControl%
 		if (defLanguage != defLanguage2)
 			defLanguage := defLanguage2
 		else 
 			return
-		StringReplace, DDLCont, DDLCont, ||, |
-		StringReplace, DDLCont, DDLCont, %defLanguage%, %defLanguage%|
-		GuiControl,,OSDLSendToLang, |%DDLCont%
-		GuiControl,,OSDLGUIDDL, |%DDLCont%
+		StringReplace, DDLCont, DDLCont, ||, |, All
+		Loop, parse, defLanguage2, |
+				StringReplace, DDLCont, DDLCont, %A_LoopField%, %A_LoopField%|
+		if (a_guicontrol == "OSDLGUISendToLB")
+			GuiControl,,OSDLGUILB, |%DDLCont%
+		else if (a_guicontrol == "OSDLGUILB")
+			GuiControl,,OSDLGUISendToLB, |%DDLCont%
+		StringReplace, defLanguageForDisplay, defLanguage, |,`,%a_space% , All
+		GuiControl,,OSDLGUILangEdit, %defLanguageForDisplay%
+		GuiControl,,OSDLGUISendToLangEdit, %defLanguageForDisplay%
 		if (saveSettings){
 			IniWrite, %defLanguage%, %iniPath%, Default, language
 			if (!ErrorLevel)
-				SB_SetText("Preferred language is now: " . defLanguage)
+				SB_SetText("Preferred language(s) changed to: " . defLanguageForDisplay)
 		}
 }
 return
@@ -159,12 +181,12 @@ return
 OSDLSearch:
 	gui, +owndialogs
 	gui, +disabled
-	GuiControlGet,defLanguage,,OSDLGUIDDL
+	GuiControlGet,defLanguage,,OSDLGUILB
 	GuiControlGet, filePath,,OSDLGUIEdit
 	if (saveSettings){
 		IniWrite, %defLanguage%, %iniPath%, Default, language
-		if (!ErrorLevel && !filePath)
-			SB_SetText("Preferred language is now: " . defLanguage)
+		;if (!ErrorLevel && !filePath)
+		;	SB_SetText("Preferred language(s) changed to " . defLanguage)
 	}
 	defLanguage:=lang(defLanguage)
 	if (!filePath) {
@@ -183,7 +205,8 @@ OSDLSearch:
 	}
 	Gui, Destroy
 	Gosub, SearchOS
-	Gosub, GuiClose
+	if (!WinExist("ahk_id " CSGUIHwnd))
+		Gosub, GuiClose
 return
 
 CommandLine:
@@ -216,7 +239,8 @@ CommandLine:
 			}
 		}
 	}
-	Gosub, GuiClose
+	if (!WinExist("ahk_id " CSGUIHwnd))
+		Gosub, GuiClose
 return
 
 SearchOS:
@@ -227,7 +251,12 @@ SearchOS:
 	if (trayTipOn)
 		TrayTip, %scriptName%,%trayFileName%:`nSearching for available subtitles...,,1
 	subtitles := searchOS(hash,defLanguage)
-	if (defLanguage == "all"){
+	if (!subtitles)
+		if (trayTipOn){
+			TrayTip, %scriptName%,%trayFileName%:`nNo subtitles found...,,1
+			Sleep, 1500
+		}
+	if (defLanguage == "all" || InStr(defLanguage,",")){
 		if (trayTipOn)
 			TrayTip,
 		Gosub, ChooseSubtitleGUI
@@ -241,35 +270,47 @@ ChooseSubtitleGUI:
 	gui, 2:default
 	gui +LabelCSGUI 
 	gui, add, text,, Subtitles for: 
-	gui, add, text,, %filePath%
-	gui, add, ListView,w600 h500 vLV gLV -LV0x10, Language|Format|Times Downloaded|Release name|Download Link
+	gui, add, edit, ReadOnly w500 h20, %filePath%
+	gui, add, ListView,w500 h100 vLV gLV -LV0x10, Language| |x downloaded|Release|Download Link
 	loop, parse, subtitles, csv
 	{
 		StringSplit,tmp,a_loopfield,|
 		LV_Add("",tmp4, tmp3, tmp2, tmp5, tmp1)
+		ix := a_index
 	}
+	sysget, mon, MonitorWorkArea
+	newHeight := (ix * 30 > (monBottom-200) ? monBottom-200 : ix*30 )
+	guicontrol, move, LV, h%newHeight%
 	types=Text,Text,Integer,Text
 	StringSplit,types,types,`,
 	loop, 4 
-	{
-		LV_ModifyCol(a_index,"Auto")
 		LV_ModifyCol(a_index,types%a_index%)
-	}
+	LV_ModifyCol(2,"Auto")
+	LV_ModifyCol(4,"Auto")
 	LV_ModifyCol(5,0)
 	LV_ModifyCol(1,"Sort")
-	gui, add, button, gLV yp+510,&Download!
-	gui, +resize
+	gui, add, button, w80 gLV yp+%newHeight%,&Download!
+	gui, add, statusbar
 	gui, show,,%scriptName% - %scriptVersion%
+	gui, +lastfound
+	CSGUIHwnd := WinExist()
 return
 
 LV:
 	gui, 2:default
-	if (a_guievent == "DoubleClick" || A_GuiControl == "Download!")
+	if (a_guievent == "DoubleClick" || A_GuiControl == "&Download!"){
+		if (!LV_GetNext(0))
+		{
+			SB_SetText("No item selected. Please select an item from the list!")
+			return
+		}
 		 LV_GetText(bestRated1, LV_GetNext(0),5)
+	 }
 	else 
 		return
 	Gui, Destroy
 	Gosub, DLSubtitle
+	Gosub, CSGUIClose
 return
 
 GuiClose:
@@ -352,13 +393,20 @@ searchOS(fileHash,languageCode){
 ;//Converts language strings to language codes
 lang(inlang="All Languages"){
 	var = all|All Languages,alb|Albanian,ara|Arabic,arm|Armenian,baq|Basque,ben|Bengali,bos|Bosnian,bre|Breton,bul|Bulgarian,cat|Catalan,chi|Chinese,cze|Czech,dan|Danish,dut|Dutch,eng|English,epo|Esperanto,est|Estonian,fin|Finnish,fre|French,geo|Georgian,ger|German,glg|Galician,ell|Greek,heb|Hebrew,hin|Hindi,hrv|Croatian,hun|Hungarian,ice|Icelandic,ind|Indonesian,ita|Italian,jpn|Japanese,kaz|Kazakh,khm|Khmer,kor|Korean,lav|Latvian,lit|Lithuanian,ltz|Luxembourgish,mac|Macedonian,may|Malay,nor|Norwegian,oci|Occitan,per|Persian,pol|Polish,por|Portuguese,rus|Russian,scc|Serbian,sin|Sinhalese,slo|Slovak,slv|Slovenian,spa|Spanish,swa|Swahili,swe|Swedish,syr|Syriac,tgl|Tagalog,tha|Thai,tur|Turkish,ukr|Ukrainian,urd|Urdu,vie|Vietnamese,rum|Romanian,pob|Brazilian
-	Loop, Parse, var, CSV 
+	ret:=""
+	Loop, Parse, inlang, |
 	{
-		StringSplit, langs, A_LoopField, |
-		if (langs2 == inlang) 
-			return %langs1%
+		cinlang := a_loopfield
+		Loop, Parse, var, CSV 
+		{
+			StringSplit, langs, A_LoopField, |
+			if (langs2 == cinlang) 
+				ret := (ret ? ret "," : "") langs1
+		}
 	}
-	return "all"
+	if (!ret)
+		return "all"
+	return ret
 }
 
 /*
